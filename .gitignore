@@ -1,0 +1,17 @@
+# secrets
+.env
+.env.example
+
+# python cache
+__pycache__/
+*.pyc
+
+# database
+*.db
+
+# build / packaging
+*.egg-info/
+
+# virtual environment
+venv/
+.env/

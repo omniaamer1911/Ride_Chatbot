@@ -1,0 +1,34 @@
+[
+  {
+    "type_key": "economy",
+    "name_ar": "اقتصادي",
+    "base_fare": 17.5,
+    "per_km": 5.1,
+    "per_min": 1.05,
+    "extra": { "label": "عربية صغيرة أو سيدان للتنقل اليومي" }
+  },
+  {
+    "type_key": "comfort",
+    "name_ar": "مريح",
+    "base_fare": 22.0,
+    "per_km": 6.4,
+    "per_min": 1.25,
+    "extra": { "label": "عربية أوسع وتكييف أقوى" }
+  },
+  {
+    "type_key": "xl",
+    "name_ar": "عائلي",
+    "base_fare": 28.0,
+    "per_km": 7.8,
+    "per_min": 1.4,
+    "extra": { "label": "فان أو عربية ٧ راكب" }
+  },
+  {
+    "type_key": "scooter",
+    "name_ar": "سكوتر",
+    "base_fare": 12.0,
+    "per_km": 3.8,
+    "per_min": 0.85,
+    "extra": { "label": "موتوسيكل للزحمة والمواعيد السريعة" }
+  }
+]
