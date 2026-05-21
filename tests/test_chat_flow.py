@@ -19,7 +19,6 @@ def test_chat_book_then_cancel(app):
                     name="book_trip",
                     arguments=json.dumps(
                         {
-                            "user_id": "u_flow",
                             "pickup_query": "المعادي",
                             "dropoff_query": "التجمع الخامس",
                             "vehicle_type": "economy",
@@ -51,7 +50,6 @@ def test_chat_book_then_cancel(app):
                         name="cancel_trip",
                         arguments=json.dumps(
                             {
-                                "user_id": "u_flow",
                                 "trip_id": 1,
                                 "reason": "غيرت خطتي",
                             },

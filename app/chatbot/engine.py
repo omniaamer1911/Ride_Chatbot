@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 from sqlalchemy import select
@@ -15,6 +16,8 @@ from app.db.models import Message
 from app.events.bus import EventBus
 from app.services.geocoding import GeoProvider
 from app.services.trips import get_or_create_user
+
+logger = logging.getLogger(__name__)
 
 
 def _openai_tool_calls_from_db(json_str: str | None) -> list[dict[str, Any]]:
@@ -83,12 +86,27 @@ async def run_chat_turn(
     await session.flush()
 
     history = await load_history(session, user.id)
-    messages: list[dict[str, Any]] = [{"role": "system", "content": SYSTEM_PROMPT_MASRI}]
+    messages: list[dict[str, Any]] = [
+        {
+            "role": "system",
+            "content": (
+                SYSTEM_PROMPT_MASRI
+                + f"\n- جلسة المستخدم الحالية (من التطبيق): {user_external_id!r}."
+            ),
+        }
+    ]
     messages.extend(FEW_SHOT)
     messages.extend(messages_from_db_rows(history))
 
     tools = tool_definitions_openai()
-    dispatcher = ToolDispatcher(ToolContext(session=session, bus=bus, geocoder=geocoder))
+    dispatcher = ToolDispatcher(
+        ToolContext(
+            session=session,
+            bus=bus,
+            geocoder=geocoder,
+            user_external_id=user_external_id,
+        )
+    )
 
     for _ in range(max_tool_rounds):
         turn = await llm.chat(messages, tools)
@@ -129,6 +147,22 @@ async def run_chat_turn(
 
             for tc in turn.tool_calls:
                 result = await dispatcher.dispatch(tc.name, tc.arguments)
+                try:
+                    payload = json.loads(result)
+                    if payload.get("ok") is False:
+                        logger.warning(
+                            "Tool %s returned error for user %s: %s",
+                            tc.name,
+                            user_external_id,
+                            payload.get("error_ar"),
+                        )
+                except json.JSONDecodeError:
+                    logger.warning(
+                        "Tool %s returned non-JSON for user %s: %s",
+                        tc.name,
+                        user_external_id,
+                        result[:200],
+                    )
                 session.add(
                     Message(
                         user_id=user.id,

@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -132,7 +133,19 @@ async def book_trip(
             "message_ar": "تم تأكيد الرحلة، السواق في الطريق ليك.",
         },
     )
+    # Wire driver in-memory so trip_to_dict does not trigger async lazy-load IO.
+    trip.driver = chosen
     return trip
+
+
+async def reload_trip_with_driver(session: AsyncSession, trip: Trip) -> Trip:
+    """Eager-load driver for API/tool responses (avoids MissingGreenlet in async)."""
+    q = (
+        select(Trip)
+        .where(Trip.id == trip.id)
+        .options(selectinload(Trip.driver))
+    )
+    return (await session.execute(q)).scalar_one()
 
 
 def _modifiable(status: TripStatus) -> bool:
@@ -284,8 +297,15 @@ async def get_trip_for_user(
     return trip
 
 
+def _loaded_driver(trip: Trip) -> Driver | None:
+    """Return driver only if already loaded on the instance (no lazy IO)."""
+    if "driver" in sa_inspect(trip).unloaded:
+        return None
+    return trip.driver
+
+
 def trip_to_dict(trip: Trip) -> dict[str, Any]:
-    driver = trip.driver
+    driver = _loaded_driver(trip)
     out: dict[str, Any] = {
         "trip_id": trip.id,
         "status": trip.status.value,

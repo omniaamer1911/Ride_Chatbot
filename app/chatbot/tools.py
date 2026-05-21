@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -20,8 +21,17 @@ from app.services.trips import (
     book_trip,
     cancel_trip,
     get_trip_status_dict,
+    get_vehicle,
     modify_trip,
     rate_driver,
+    reload_trip_with_driver,
+)
+
+logger = logging.getLogger(__name__)
+
+# Tools that bind to the authenticated user from POST /api/chat (not from the model).
+_TOOLS_WITH_SESSION_USER = frozenset(
+    {"book_trip", "get_trip_status", "modify_trip", "cancel_trip", "rate_driver"}
 )
 
 
@@ -144,11 +154,10 @@ def tool_definitions_openai() -> list[dict[str, Any]]:
             "type": "function",
             "function": {
                 "name": "book_trip",
-                "description": "أكّد حجز رحلة بعد موافقة المستخدم على السعر والسواق.",
+                "description": "أكّد حجز رحلة بعد موافقة المستخدم على السعر والسواق (حساب المستخدم مربوط تلقائياً من التطبيق).",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "user_id": {"type": "string"},
                         "pickup_query": {"type": "string"},
                         "dropoff_query": {"type": "string"},
                         "vehicle_type": {"type": "string"},
@@ -156,7 +165,7 @@ def tool_definitions_openai() -> list[dict[str, Any]]:
                         "when_iso": {"type": "string"},
                         "bad_weather": {"type": "boolean"},
                     },
-                    "required": ["user_id", "pickup_query", "dropoff_query", "vehicle_type"],
+                    "required": ["pickup_query", "dropoff_query", "vehicle_type"],
                 },
             },
         },
@@ -164,14 +173,13 @@ def tool_definitions_openai() -> list[dict[str, Any]]:
             "type": "function",
             "function": {
                 "name": "get_trip_status",
-                "description": "جيب تفاصيل رحلة حالية أو سابقة (حالة، سعر، سواق، ETA).",
+                "description": "جيب تفاصيل رحلة حالية أو سابقة (حالة، سعر، سواق، ETA) لحساب المستخدم الحالي.",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "user_id": {"type": "string"},
                         "trip_id": {"type": "integer"},
                     },
-                    "required": ["user_id", "trip_id"],
+                    "required": ["trip_id"],
                 },
             },
         },
@@ -183,12 +191,11 @@ def tool_definitions_openai() -> list[dict[str, Any]]:
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "user_id": {"type": "string"},
                         "trip_id": {"type": "integer"},
                         "dropoff_query": {"type": "string"},
                         "vehicle_type": {"type": "string"},
                     },
-                    "required": ["user_id", "trip_id"],
+                    "required": ["trip_id"],
                 },
             },
         },
@@ -200,11 +207,10 @@ def tool_definitions_openai() -> list[dict[str, Any]]:
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "user_id": {"type": "string"},
                         "trip_id": {"type": "integer"},
                         "reason": {"type": "string"},
                     },
-                    "required": ["user_id", "trip_id", "reason"],
+                    "required": ["trip_id", "reason"],
                 },
             },
         },
@@ -216,12 +222,11 @@ def tool_definitions_openai() -> list[dict[str, Any]]:
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "user_id": {"type": "string"},
                         "trip_id": {"type": "integer"},
                         "stars": {"type": "integer"},
                         "comment": {"type": "string"},
                     },
-                    "required": ["user_id", "trip_id", "stars"],
+                    "required": ["trip_id", "stars"],
                 },
             },
         },
@@ -233,11 +238,19 @@ class ToolContext:
     session: AsyncSession
     bus: EventBus
     geocoder: GeoProvider
+    user_external_id: str
 
 
 class ToolDispatcher:
     def __init__(self, ctx: ToolContext) -> None:
         self.ctx = ctx
+
+    def _inject_session_user(self, name: str, raw: dict[str, Any]) -> dict[str, Any]:
+        if name not in _TOOLS_WITH_SESSION_USER:
+            return raw
+        merged = dict(raw)
+        merged["user_id"] = self.ctx.user_external_id
+        return merged
 
     async def dispatch(self, name: str, arguments_json: str) -> str:
         try:
@@ -247,6 +260,7 @@ class ToolDispatcher:
                 {"ok": False, "error_ar": "البراميترات مش JSON صالح."},
                 ensure_ascii=False,
             )
+        raw = self._inject_session_user(name, raw)
         try:
             return await self._dispatch(name, raw)
         except ValidationError as ve:
@@ -256,7 +270,8 @@ class ToolDispatcher:
             )
         except ValueError as ve:
             return json.dumps({"ok": False, "error_ar": str(ve)}, ensure_ascii=False)
-        except Exception as e:  # pragma: no cover - defensive
+        except Exception as e:
+            logger.exception("Tool %s failed", name)
             return json.dumps(
                 {"ok": False, "error_ar": "حصل خطأ: " + str(e)},
                 ensure_ascii=False,
@@ -386,14 +401,13 @@ class ToolDispatcher:
             )
 
         if name == "book_trip":
+            err = await self._validate_book_trip(s, geo, raw)
+            if err:
+                return err
             a = BookTripArgs.model_validate(raw)
             pu = await geo.resolve(a.pickup_query)
             du = await geo.resolve(a.dropoff_query)
-            if not pu or not du:
-                return json.dumps(
-                    {"ok": False, "error_ar": "مش قادر أحدد نقطة الانطلاق أو الوصول."},
-                    ensure_ascii=False,
-                )
+            assert pu and du
             when = None
             if a.when_iso:
                 try:
@@ -411,6 +425,7 @@ class ToolDispatcher:
                 when=when,
                 bad_weather=a.bad_weather,
             )
+            trip = await reload_trip_with_driver(s, trip)
             from app.services.trips import trip_to_dict
 
             return json.dumps({"ok": True, "trip": trip_to_dict(trip)}, ensure_ascii=False)
@@ -438,6 +453,7 @@ class ToolDispatcher:
                 dropoff=drop,
                 vehicle_type=a.vehicle_type,
             )
+            trip = await reload_trip_with_driver(s, trip)
             from app.services.trips import trip_to_dict
 
             return json.dumps({"ok": True, "trip": trip_to_dict(trip)}, ensure_ascii=False)
@@ -445,6 +461,7 @@ class ToolDispatcher:
         if name == "cancel_trip":
             a = CancelTripArgs.model_validate(raw)
             trip = await cancel_trip(s, bus, a.trip_id, a.user_id, a.reason)
+            trip = await reload_trip_with_driver(s, trip)
             from app.services.trips import trip_to_dict
 
             return json.dumps({"ok": True, "trip": trip_to_dict(trip)}, ensure_ascii=False)
@@ -452,8 +469,52 @@ class ToolDispatcher:
         if name == "rate_driver":
             a = RateDriverArgs.model_validate(raw)
             trip = await rate_driver(s, a.trip_id, a.user_id, a.stars, a.comment)
+            trip = await reload_trip_with_driver(s, trip)
             from app.services.trips import trip_to_dict
 
             return json.dumps({"ok": True, "trip": trip_to_dict(trip)}, ensure_ascii=False)
 
         return json.dumps({"ok": False, "error_ar": f"أداة غير معروفة: {name}"}, ensure_ascii=False)
+
+    async def _validate_book_trip(
+        self, session: AsyncSession, geo: GeoProvider, raw: dict[str, Any]
+    ) -> str | None:
+        """Return JSON error payload if booking prerequisites are missing, else None."""
+        try:
+            a = BookTripArgs.model_validate(raw)
+        except ValidationError as ve:
+            return json.dumps(
+                {"ok": False, "error_ar": "داتا ناقصة أو غلط: " + ve.errors()[0]["msg"]},
+                ensure_ascii=False,
+            )
+        missing = [
+            label
+            for label, val in (
+                ("pickup_query", a.pickup_query),
+                ("dropoff_query", a.dropoff_query),
+                ("vehicle_type", a.vehicle_type),
+            )
+            if not (val and str(val).strip())
+        ]
+        if missing:
+            return json.dumps(
+                {
+                    "ok": False,
+                    "error_ar": "ناقص للحجز: " + ", ".join(missing),
+                },
+                ensure_ascii=False,
+            )
+        pu = await geo.resolve(a.pickup_query)
+        du = await geo.resolve(a.dropoff_query)
+        if not pu or not du:
+            return json.dumps(
+                {"ok": False, "error_ar": "مش قادر أحدد نقطة الانطلاق أو الوصول."},
+                ensure_ascii=False,
+            )
+        vehicle = await get_vehicle(session, a.vehicle_type)
+        if not vehicle:
+            return json.dumps(
+                {"ok": False, "error_ar": "نوع العربية غلط."},
+                ensure_ascii=False,
+            )
+        return None

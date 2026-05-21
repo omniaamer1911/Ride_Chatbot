@@ -47,7 +47,12 @@ async def test_resolve_location_tool():
         )
         await session.commit()
         d = ToolDispatcher(
-            ToolContext(session=session, bus=EventBus(), geocoder=LandmarkGeocoder())
+            ToolContext(
+                session=session,
+                bus=EventBus(),
+                geocoder=LandmarkGeocoder(),
+                user_external_id="u_book",
+            )
         )
         out = await d.dispatch("resolve_location", json.dumps({"query": "التحرير"}))
         data = json.loads(out)
@@ -66,5 +71,22 @@ async def test_resolve_location_tool():
         data2 = json.loads(out2)
         assert data2["ok"] is True
         assert data2["min_egp"] < data2["max_egp"]
+
+        out3 = await d.dispatch(
+            "book_trip",
+            json.dumps(
+                {
+                    "pickup_query": "المعادي",
+                    "dropoff_query": "التجمع الخامس",
+                    "vehicle_type": "economy",
+                },
+                ensure_ascii=False,
+            ),
+        )
+        data3 = json.loads(out3)
+        assert data3["ok"] is True, data3
+        assert data3["trip"]["trip_id"] >= 1
+        assert data3["trip"]["status"] == "driver_en_route"
+        assert "driver" in data3["trip"]
 
     await engine.dispose()

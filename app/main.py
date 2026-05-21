@@ -1,7 +1,13 @@
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(levelname)s %(name)s: %(message)s",
+)
 
 from app.api.chat import router as chat_router
 from app.api.drivers import router as drivers_router
