@@ -6,7 +6,6 @@ from sqlalchemy.pool import StaticPool
 
 from app.db.base import Base
 from app.db.models import Driver, DriverStatus, Vehicle
-from app.events.bus import EventBus
 from app.services.geocoding import LandmarkGeocoder
 from app.chatbot.tools import ToolContext, ToolDispatcher
 
@@ -49,7 +48,6 @@ async def test_resolve_location_tool():
         d = ToolDispatcher(
             ToolContext(
                 session=session,
-                bus=EventBus(),
                 geocoder=LandmarkGeocoder(),
                 user_external_id="u_book",
             )

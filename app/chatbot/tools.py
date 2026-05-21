@@ -13,7 +13,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Vehicle
-from app.events.bus import EventBus
 from app.services.geocoding import GeoProvider
 from app.services.matching import find_best_drivers
 from app.services.pricing import estimate_trip_price
@@ -236,7 +235,6 @@ def tool_definitions_openai() -> list[dict[str, Any]]:
 @dataclass
 class ToolContext:
     session: AsyncSession
-    bus: EventBus
     geocoder: GeoProvider
     user_external_id: str
 
@@ -279,7 +277,6 @@ class ToolDispatcher:
 
     async def _dispatch(self, name: str, raw: dict[str, Any]) -> str:
         s = self.ctx.session
-        bus = self.ctx.bus
         geo = self.ctx.geocoder
 
         if name == "resolve_location":
@@ -416,7 +413,6 @@ class ToolDispatcher:
                     when = None
             trip = await book_trip(
                 s,
-                bus,
                 a.user_id,
                 pu,
                 du,
@@ -447,7 +443,6 @@ class ToolDispatcher:
                     )
             trip = await modify_trip(
                 s,
-                bus,
                 a.trip_id,
                 a.user_id,
                 dropoff=drop,
@@ -460,7 +455,7 @@ class ToolDispatcher:
 
         if name == "cancel_trip":
             a = CancelTripArgs.model_validate(raw)
-            trip = await cancel_trip(s, bus, a.trip_id, a.user_id, a.reason)
+            trip = await cancel_trip(s, a.trip_id, a.user_id, a.reason)
             trip = await reload_trip_with_driver(s, trip)
             from app.services.trips import trip_to_dict
 

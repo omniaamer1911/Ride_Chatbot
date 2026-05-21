@@ -11,7 +11,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.db.models import Driver, DriverStatus, Trip, TripEvent, TripStatus, User, Vehicle
-from app.events.bus import EventBus
 from app.services.geocoding import ResolvedLocation
 from app.services.matching import find_best_drivers
 from app.services.pricing import estimate_trip_price
@@ -43,7 +42,6 @@ async def log_event(
 
 async def book_trip(
     session: AsyncSession,
-    bus: EventBus,
     user_external_id: str,
     pickup: ResolvedLocation,
     dropoff: ResolvedLocation,
@@ -124,15 +122,6 @@ async def book_trip(
             "driver": chosen.name_ar,
         },
     )
-    await bus.publish(
-        user_external_id,
-        {
-            "type": "trip_update",
-            "trip_id": trip.id,
-            "status": trip.status.value,
-            "message_ar": "تم تأكيد الرحلة، السواق في الطريق ليك.",
-        },
-    )
     # Wire driver in-memory so trip_to_dict does not trigger async lazy-load IO.
     trip.driver = chosen
     return trip
@@ -158,7 +147,6 @@ def _modifiable(status: TripStatus) -> bool:
 
 async def modify_trip(
     session: AsyncSession,
-    bus: EventBus,
     trip_id: int,
     user_external_id: str,
     dropoff: ResolvedLocation | None = None,
@@ -219,16 +207,11 @@ async def modify_trip(
         "modified",
         {"dropoff": dropoff.name_ar if dropoff else None, "vehicle_type": vehicle_type},
     )
-    await bus.publish(
-        user_external_id,
-        {"type": "trip_update", "trip_id": trip.id, "status": trip.status.value},
-    )
     return trip
 
 
 async def cancel_trip(
     session: AsyncSession,
-    bus: EventBus,
     trip_id: int,
     user_external_id: str,
     reason: str,
@@ -250,16 +233,6 @@ async def cancel_trip(
         if d:
             d.status = DriverStatus.available
     await log_event(session, trip.id, "cancelled", {"reason": reason, "fee": fee})
-    await bus.publish(
-        user_external_id,
-        {
-            "type": "trip_update",
-            "trip_id": trip.id,
-            "status": trip.status.value,
-            "cancellation_fee_egp": fee,
-            "message_ar": "تم إلغاء الرحلة.",
-        },
-    )
     return trip
 
 

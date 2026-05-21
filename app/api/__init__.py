@@ -1,1 +1,1 @@
-"""HTTP and WebSocket routers."""
+"""HTTP API routers."""

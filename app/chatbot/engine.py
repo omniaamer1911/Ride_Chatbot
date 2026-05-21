@@ -13,7 +13,6 @@ from app.chatbot.prompts import FEW_SHOT, SYSTEM_PROMPT_MASRI
 from app.chatbot.providers.base import LLMProvider
 from app.chatbot.tools import ToolContext, ToolDispatcher, tool_definitions_openai
 from app.db.models import Message
-from app.events.bus import EventBus
 from app.services.geocoding import GeoProvider
 from app.services.trips import get_or_create_user
 
@@ -68,7 +67,6 @@ async def load_history(session: AsyncSession, user_db_id: int, limit: int = 40) 
 
 async def run_chat_turn(
     session: AsyncSession,
-    bus: EventBus,
     geocoder: GeoProvider,
     llm: LLMProvider,
     user_external_id: str,
@@ -102,7 +100,6 @@ async def run_chat_turn(
     dispatcher = ToolDispatcher(
         ToolContext(
             session=session,
-            bus=bus,
             geocoder=geocoder,
             user_external_id=user_external_id,
         )

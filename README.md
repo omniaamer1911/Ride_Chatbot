@@ -1,13 +1,12 @@
 # Egyptian Arabic ride-hailing chatbot (backend)
 
-FastAPI service that powers a conversational assistant for an Uber-like app in Egypt. It speaks **Egyptian Arabic (Masri)**, understands **local landmarks** (seeded JSON), runs **driver matching**, **dynamic pricing**, and manages the **full trip lifecycle** via LLM **tool/function calling**. Persistence is **SQLite**; live trip updates are pushed over **WebSockets**.
+FastAPI service that powers a conversational assistant for an Uber-like app in Egypt. It speaks **Egyptian Arabic (Masri)**, understands **local landmarks** (seeded JSON), runs **driver matching**, **dynamic pricing**, and manages the **full trip lifecycle** via LLM **tool/function calling**. Persistence is **SQLite**.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
     Client[Mobile Client] -->|POST /api/chat| API
-    Client -->|WS /ws/trips| API
     subgraph FastAPI [FastAPI]
         API[API] --> Engine[ChatEngine]
         Engine --> LLM[LLMProvider]
@@ -18,8 +17,6 @@ flowchart LR
         Tools --> Price[Pricing]
         Tools --> Match[Matching]
         Tools --> Trips[Trips]
-        Trips --> Sim[TripSimulator]
-        Sim --> Bus[EventBus]
     end
     API --> DB[(SQLite)]
 ```
@@ -69,12 +66,6 @@ Drivers near a point (debug):
 curl "http://127.0.0.1:8000/api/drivers?near=30.0444,31.2357&vehicle_type=economy&limit=3"
 ```
 
-WebSocket (trip updates for a user):
-
-```text
-ws://127.0.0.1:8000/ws/trips/u_demo
-```
-
 ## Environment variables
 
 | Variable | Description |
@@ -85,7 +76,6 @@ ws://127.0.0.1:8000/ws/trips/u_demo
 | `ANTHROPIC_API_KEY` | Required when `LLM_PROVIDER=anthropic`. |
 | `ANTHROPIC_MODEL` | Default `claude-sonnet-4-20250514`. |
 | `DATABASE_URL` | Default `sqlite+aiosqlite:///./ride_chatbot.db`. |
-| `TRIP_SIMULATOR_INTERVAL_SEC` | Simulator tick interval (default `5`). |
 
 ### Switching LLM provider
 

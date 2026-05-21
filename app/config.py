@@ -21,7 +21,6 @@ class Settings(BaseSettings):
     anthropic_model: str = "claude-sonnet-4-20250514"
 
     database_url: str = "sqlite+aiosqlite:///./ride_chatbot.db"
-    trip_simulator_interval_sec: float = 5.0
 
     # Demand surge: count of active trips above this adds extra multiplier step
     demand_surge_threshold: int = 3
